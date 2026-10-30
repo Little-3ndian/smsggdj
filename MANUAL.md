@@ -45,7 +45,6 @@ Think of it as:
 | **1** double-tap | **Paste** the clipboard here. With nothing copied: on an *empty* cell it grabs the next **free** (blank) chain/phrase/instrument; on a *populated* SONG or CHAIN cell it **clones** that chain/phrase into a fresh slot (see *Cloning*) |
 | **2** tap | **Back** — step out: PHRASE → CHAIN → SONG |
 | **2** hold + D-pad | **Move between screens** (the screen map, below) |
-| **2** held alone (~2½ s) | Open / close the **HELP** screen (on-console reference) from anywhere |
 | **2** hold + **1** tap | **Play / Stop** |
 | **1** hold + **2** tap | **Cut** the value under the cursor (into the clipboard) |
 | **1** hold + **2** held (~⅓ s) | **Block select** (see below) |
@@ -87,24 +86,20 @@ column lands back on its own column type so nothing gets scrambled.
 Hold **2** and press the D-pad to move around this map:
 
 ```
-   [OPTIONS][PROJECT]           [WAVE][ HELP ]
+   [OPTIONS][PROJECT]           [WAVE]
    [ SONG ][ CHAIN ][PHRASE][ INSTR ][ TABLE ]
    [ FILES][GROOVE ]          [ ECHO ]
 ```
 
 Navigation stops at the edges of the map — it doesn't wrap around. **FILES** and
 **GROOVE** sit side by side on the bottom row, so `2+Right` from FILES goes to
-GROOVE and `2+Left` from GROOVE comes back. **HELP** sits above TABLE (`2+Up`
-from TABLE) — or hold **2** alone for ~2½ s to pop it open from any screen.
+GROOVE and `2+Left` from GROOVE comes back.
 
 - **SONG** — the arrangement: which chains play on each of the 4 tracks.
 - **CHAIN** — a list of phrases (with transpose), played in order. While playing, a
   **▶ playhead** just left of the PHR column marks the step being played.
 - **PHRASE** — 16 steps of notes, instruments and commands. The heart of it. A
   **▶ playhead** just left of the NOTE column marks the playing step.
-- **HELP** — a read-only, paged on-console reference for the button gestures and
-  the command set (above TABLE; `2+Up`, or hold **2** for ~2½ s from anywhere).
-  Left/Right (or Up/Down) turn the pages.
 - **INSTR** — design the sound of one instrument.
 - **TABLE** — a little automation sequencer an instrument can run.
 - **GROOVE** — swing and timing.
@@ -653,14 +648,13 @@ CUT         1 hold + 2 tap
 SELECT      1 hold + 2 held (~1/3s)
 BACK        2 tap
 SCREENS     2 hold + D-pad
-HELP        2 held alone ~2.5s   (or 2+Up from TABLE)
 PLAY/STOP   2 hold + 1   (or PAUSE / Game Gear START)
 PLAY SONG   2 hold + 1 double-tap   (full song from the contextual row)
 ```
 
 ```
 SCREEN MAP
-   OPTIONS  PROJECT                  WAVE    HELP
+   OPTIONS  PROJECT                  WAVE
    SONG     CHAIN    PHRASE   INSTR   TABLE
    FILES    GROOVE                    ECHO
 ```
