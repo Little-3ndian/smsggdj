@@ -708,6 +708,12 @@ cm_instr:
   ld b, a
   bit 1, c                   ; down
   jr z, cmi_up
+  call ins_is_smp
+  jr nz, cmi_dogo
+  ld a, (ins_row)
+  cp 9                       ; DIR is the last SMP row
+  jr z, cmi_up
+cmi_dogo:
   ld a, (ins_row)
   cp b
   jr nc, cmi_up
@@ -768,15 +774,23 @@ iwsd_w4:
 iwsd_w6:
   ld a, 6
   ret
-iwsd_smp:                    ; SMP down: INST TYPE KIT(5) RATE(12) TSP(13)
+iwsd_smp:                    ; SMP down: INST TYPE KIT RATE TSP MODE DIR
   ld a, e
   cp 2
   ret c                      ; 0,1 unchanged
   cp 6
   jr c, iwsd_s5              ; 2..5 -> 5 (KIT)
+  cp 9
+  jr z, iwsd_s9              ; MODE(8) -> DIR(9)
   cp 13
-  ret nc                     ; 13 (TSP) unchanged
-  ld a, 12                   ; 6..12 -> 12 (RATE)
+  jr c, iwsd_s12             ; 6..12 -> 12 (RATE)
+  ld a, 8                    ; TSP(13) -> MODE(8)
+  ret
+iwsd_s12:
+  ld a, 12
+  ret
+iwsd_s9:
+  ld a, 9
   ret
 iwsd_s5:
   ld a, 5
@@ -860,15 +874,24 @@ iwsu_w2:
 iwsu_w4:
   ld a, 4
   ret
-iwsu_smp:                    ; SMP up: TSP(13) RATE(12) KIT(5) TYPE INST
+iwsu_smp:                    ; SMP up: DIR MODE TSP RATE KIT TYPE INST
   ld a, e
   cp 2
   ret c                      ; 0,1 unchanged
   cp 5
   jr c, iwsu_s1              ; 2..4 -> 1 (TYPE)
+  cp 7
+  jr c, iwsu_sk              ; 5..6 -> 5 (KIT)
+  cp 8
+  jr c, iwsu_stsp            ; field 7 -> TSP(13)
+  cp 9
+  ret c                      ; field 8 remains MODE when coming from DIR
   cp 12
-  jr c, iwsu_sk              ; 5..11 -> 5 (KIT)
-  ld a, 12                   ; 12 unchanged; 13 -> 12 (RATE)
+  jr c, iwsu_sk              ; 9..11 -> 5 (KIT)
+  ld a, 12                   ; 12 unchanged
+  ret
+ iwsu_stsp:
+  ld a, 13
   ret
 iwsu_sk:
   ld a, 5
@@ -2041,9 +2064,17 @@ ine_swp:
   ld de, 5
   jr ine_bofs
 ine_vib:
+  push hl
+  call ins_is_smp
+  pop hl
+  jp z, ine_smpmode
   ld de, 6
   jr ine_bofs
 ine_trm:
+  push hl
+  call ins_is_smp
+  pop hl
+  jp z, ine_smpdir
   ld de, 7
 ine_bofs:
   add hl, de
@@ -2073,6 +2104,8 @@ inb_st:
   ld (hl), d
   jp ine_mark
 
+; SMP-only controls use the otherwise-unused VIB/TRM bytes (+6/+7).
+; Both are binary selectors and ignore any stale high bits in old records.
 ine_type:                    ; TONE/NOISE/SMP/WAV/FM/FMDRUM (L/R both ways)
   ld a, (pad_edge)
   and $0F
@@ -6958,6 +6991,10 @@ idr_map:
   jr z, idrl_f5              ; field 5: KIT on SMP, else DCY
   cp 13
   jr z, idrl_f13             ; field 13: TSP on SMP, else RATE (NOISE)
+  cp 8
+  jr z, idrl_f8              ; field 8: MODE on SMP, else VIB
+  cp 9
+  jr z, idrl_f9              ; field 9: DIR on SMP, else TRM
   cp 12
   jr nz, idr_lblidx
   call ins_ptr
@@ -6981,6 +7018,26 @@ idrl_f5:
   jr idr_lblidx
 idrl_drum:
   ld hl, str_drumlbl
+  jr idr_lblgo
+idrl_f8:
+  call ins_ptr
+  ld a, (hl)
+  cp 2
+  jr z, idrl_modelbl
+  ld a, 8
+  jr idr_lblidx
+idrl_f9:
+  call ins_ptr
+  ld a, (hl)
+  cp 2
+  jr z, idrl_dirlbl
+  ld a, 9
+  jr idr_lblidx
+idrl_modelbl:
+  ld hl, str_modelbl
+  jr idr_lblgo
+idrl_dirlbl:
+  ld hl, str_dirlbl
   jr idr_lblgo
 idrl_f13:                    ; SMP -> "TSP" (ins_lbls[6]), else RATE (ins_lbls[13])
   call ins_ptr
@@ -7174,10 +7231,41 @@ idr_swp:
   ld de, 5
   jr idr_bhex
 idr_vib:
+  push hl
+  call ins_is_smp
+  pop hl
+  jr z, idr_smpmode
   ld de, 6
   jr idr_bhex
 idr_trm:
+  push hl
+  call ins_is_smp
+  pop hl
+  jr z, idr_smpdir
   ld de, 7
+  jr idr_bhex
+idr_smpmode:
+  ld de, 6
+  add hl, de
+  ld a, (hl)
+  and 1
+  ld hl, str_smpmodes
+  jr z, idr_smpm0
+  ld hl, str_smpmodes+6
+idr_smpm0:
+  ld b, 5
+  jp print_raw
+idr_smpdir:
+  ld de, 7
+  add hl, de
+  ld a, (hl)
+  and 1
+  ld hl, str_smpdirs
+  jr z, idr_smpd0
+  ld hl, str_smpdirs+6
+idr_smpd0:
+  ld b, 5
+  jp print_raw
 idr_bhex:
   add hl, de
   ld a, (hl)
@@ -7538,10 +7626,10 @@ r2f_wav:                     ; INST/TYPE/VOL/HLD/TSP/WAVE
   .db 0, 1, 2, $FF, 4, 6, $FF, 12, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 ; SMP form: VOL/ENV/SPD/LEN/TSP/SWP/VIB/TRM do nothing for samples,
 ; so show only INST, TYPE, TBL, TBS, RATE.
-r2f_smp:                     ; grid row -> field (INST/TYPE/-/KIT/RATE/TSP)
-  .db 0, 1, $FF, 5, 12, 13, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-f2r_smp:                     ; field -> grid row (blank row2; KIT=5 r3, RATE=12 r4, TSP=13 r5)
-  .db 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 4, 5
+r2f_smp:                     ; grid row -> field (INST/TYPE/-/KIT/RATE/TSP/MODE/DIR)
+  .db 0, 1, $FF, 5, 12, 13, 8, 9, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+f2r_smp:                     ; field -> grid row (MODE=8 row6, DIR=9 row7)
+  .db 0, 1, 0, 0, 0, 3, 0, 0, 6, 7, 0, 0, 4, 5, 0, 0
 r2f_fm:                      ; FM: INST/TYPE/VOL/HLD | TSP | TBL/TBS | PROG/PRST | FINE
   .db 0, 1, 2, 4, $FF, 6, $FF, 10, 11, $FF, 12, 14, $FF, 15, $FF, $FF
 f2r_fm:                      ; field -> grid row (FINE = field 15 at row 13)
@@ -7577,14 +7665,43 @@ ins_lbls:
   .db "FINE", 0              ; field 15: per-instrument finetune (TONE/FM)
 str_drumlbl: .db "DRUM", 0   ; FMDRUM field 5 label
 str_drums:  .db "ALL BD  SD  TOM TCY HH  "   ; 6 x 4-char DRUM selector values
+str_modelbl: .db "MODE", 0
+str_dirlbl:  .db "DIR ", 0
+str_smpmodes: .db "1SHOT", 0, "LOOP ", 0
+str_smpdirs:  .db "FWD  ", 0, "RVS  ", 0
+
+; SMP-only selectors, stored in the otherwise-unused VIB/TRM bytes (+6/+7).
+; These live in the always-mapped bank 1 to keep the fixed bank 0 within budget.
+ine_smpmode:
+  ld de, 6
+  jr ine_smpsel
+ine_smpdir:
+  ld de, 7
+ine_smpsel:
+  ld a, (pad_edge)
+  and $0F
+  ret z
+  add hl, de
+  ld a, (hl)
+  and 1
+  xor 1
+  ld (hl), a
+  jp ine_mark
 
 ; instrument-type seed defaults, parked in bank 1 (jp-reached from ine_type in
 ; the full bank-0 slot). HL = instrument record on entry; ine_tsr (bank 0) needs
 ; no HL, so these don't preserve it. Each jumps back to ine_tsr when done.
-ine_seedsmp:                 ; KIT/SMP: kit 0 (+2 doubles as DCY, default 3)
+ine_seedsmp:                 ; SMP: kit 0, one-shot, forward
   inc hl
   inc hl
-  ld (hl), 0
+  ld (hl), 0                ; +2 KIT
+  inc hl
+  inc hl
+  inc hl
+  inc hl                    ; +6 MODE
+  ld (hl), 0                ; 0 = 1SHOT
+  inc hl                    ; +7 DIRECTION
+  ld (hl), 0                ; 0 = FWD
   jp ine_tsr
 ine_seedwav:                 ; WAV: +3 HLD = 6 (note-length default)
   inc hl

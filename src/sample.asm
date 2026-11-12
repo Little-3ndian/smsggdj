@@ -39,6 +39,10 @@
   smp_count    db            ; samples in the pool (boot-cached)
   smp_speed    db            ; PCM playback speed: 0 1x, 1 2x, 2 4x, 3 .5x
   smp_hold     db            ; 0.5x: toggle - feed every other tick
+  smp_loop     db            ; kit MODE: 0 one-shot, 1 loop
+  smp_reverse  db            ; kit DIRECTION: 0 forward, 1 reverse
+  smp_start    dw            ; PCM loop start pointer
+  smp_last     dw            ; PCM reverse/loop last-byte pointer
 .ENDS
 
 .RAMSECTION "wavbuf" SLOT 3 ALIGN 32
@@ -53,60 +57,7 @@ smp_feed_any:
   cp 2
   jr z, wav_feed_one
   nop                         ; keep PCM feed timing aligned with the old fixed-T3 path
-  ; PCM: walk the data at the playback speed (output cadence is
-  ; fixed, so this only changes pitch/length, not the IRQ timing)
-  ld a, (smp_speed)
-  or a
-  jr z, smp_feed_one         ; 0 = 1x: one nibble per tick
-  dec a
-  jr z, sfa_2x               ; 1 = 2x: skip every other sample
-  dec a
-  jr z, sfa_4x               ; 2 = 4x: skip three of every four
-  ld a, (smp_hold)           ; 3 = 0.5x: feed every other tick
-  xor 1                      ; (the DAC holds its level between)
-  ld (smp_hold), a
-  ret nz
-  jr smp_feed_one
-sfa_2x:                      ; 2x = play every other sample: emit each
-  ld a, h                    ; byte's high nibble and advance one byte, so
-  cp d                       ; it's one DAC write per tick (same cost as 1x)
-  jr nz, sfa2_go             ; instead of two - no extra feeder load.
-  ld a, l
-  cp e
-  jp z, sf_end               ; reached the end
-sfa2_go:
-  ld a, (hl)
-  inc hl
-  rrca
-  rrca
-  rrca
-  rrca
-  and $0F
-  or c                       ; selected tone-channel volume latch
-  out (PSG_PORT), a
-  ret
-sfa_4x:                      ; 4x = play every 4th sample: emit a byte's
-  ld a, h                    ; high nibble, advance two bytes. End test is
-  cp d                       ; >= (the 2-byte step can skip past DE).
-  jr c, sfa4_go
-  jr nz, sfa4_end
-  ld a, l
-  cp e
-  jr c, sfa4_go
-sfa4_end:
-  jp sf_end
-sfa4_go:
-  ld a, (hl)
-  inc hl
-  inc hl
-  rrca
-  rrca
-  rrca
-  rrca
-  and $0F
-  or c
-  out (PSG_PORT), a
-  ret
+  jp smp_pcm_feed           ; direction/mode PCM feeder in bank 1
 
 ; wavetable: HL = wav_buf (32-aligned), DE = increment,
 ; BC = 8.8 phase. Buffer bytes are pre-OR'd $D0|attenuation.
@@ -124,45 +75,6 @@ wav_feed_one:
   ld a, (hl)
   pop hl
   out (PSG_PORT), a
-  ret
-
-; feed one nibble to the selected tone-channel DAC. Shadow context: caller
-; has done EX AF,AF' + EXX.
-smp_feed_one:
-  bit 0, c                   ; latch bases are even; bit 0 marks low nibble next
-  jr nz, sf_lo
-  ld a, h                    ; fetch a new byte; end reached?
-  cp d
-  jr nz, sf_go
-  ld a, l
-  cp e
-  jr z, sf_end
-sf_go:
-  ld a, (hl)
-  inc hl
-  ld b, a
-  rrca
-  rrca
-  rrca
-  rrca
-  and $0F
-  or c                       ; C = $90/$B0/$D0
-  out (PSG_PORT), a
-  inc c                      ; remember: emit the saved low nibble next
-  ret
-sf_lo:
-  ld a, b
-  and $0F
-  dec c                      ; restore the channel's latch base
-  or c
-  out (PSG_PORT), a
-  ret
-sf_end:
-  ld a, c
-  or $0F                    ; selected DAC channel silent
-  out (PSG_PORT), a
-  xor a
-  ld (smp_active), a
   ret
 
 ; start sample A (0..smp_count-1); main-thread only. The pool
@@ -201,12 +113,29 @@ smp_play:
   ld h, d
   ld l, e
   add hl, bc                 ; HL = end, DE = start
+  ld (smp_start), de
+  push hl
+  dec hl
+  ld (smp_last), hl          ; last byte = end - 1
+  pop hl
+  ld a, (smp_reverse)
+  or a
+  jr nz, sp_init_reverse
   push de
   push hl
   exx
-  pop de                     ; end
-  pop hl                     ; pointer
-  ld c, 0                    ; phase: fetch next
+  pop de                     ; forward bound = end
+  pop hl                     ; forward pointer = start
+  jr sp_init_shadow
+sp_init_reverse:
+  dec hl                     ; reverse pointer = end - 1
+  push hl
+  push de
+  exx
+  pop de                     ; reverse bound = start
+  pop hl                     ; reverse pointer = end - 1
+sp_init_shadow:
+  ld c, 0                    ; phase: fetch next nibble/byte
   exx
   ld a, 1
   ld (smp_mode), a

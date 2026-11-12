@@ -2916,7 +2916,7 @@ tn_mods:
   cp 2                       ; SMP: note picks the sample
   jr z, tn_smp
   cp 3                       ; WAV: wavetable through the DAC
-  jr z, tn_wav
+  jp z, tn_wav
   cp 4                       ; FM: YM2413 voice
   jp z, tn_fm
   cp 5                       ; FMDRUM: YM2413 rhythm voice
@@ -2968,6 +2968,19 @@ tn_sspd:
   ld a, (ix+0)               ; note
   and 7                      ; within-kit slot 0-7
   add a, e                   ; sample = kit*8 + (note & 7)
+  push af                    ; keep sample index while reading kit-wide controls
+  inc hl
+  inc hl
+  inc hl
+  inc hl                     ; instrument +6 = MODE
+  ld a, (hl)
+  and 1
+  ld (smp_loop), a           ; 0 = 1SHOT, 1 = LOOP
+  inc hl                     ; instrument +7 = DIRECTION
+  ld a, (hl)
+  and 1
+  ld (smp_reverse), a        ; 0 = FWD, 1 = RVS
+  pop af
   cp d
   jr nc, tn_squiet           ; past the loaded samples -> empty slot, silence
   call smp_play

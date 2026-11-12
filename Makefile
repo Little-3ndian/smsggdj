@@ -12,7 +12,7 @@ PICO_TOOLCHAIN_PATH ?=
 # Versioned copies for distribution: str_version ("V0.27") -> a filename-safe
 # tag with no spaces or dots, e.g. build/smsggdj_v0_27.sms. The canonical names
 # above stay stable for `make run` and the tooling.
-VTAG  := $(shell sed -n 's/^str_version:.*"\([^"]*\)".*/\1/p' src/main.asm | tr -d ' ' | tr '.' '_' | tr 'A-Z' 'a-z')
+VTAG  := $(shell sed -n 's/.*str_version:.*"\([^"]*\)".*/\1/p' src/main.asm | tr -d ' ' | tr '.' '_' | tr 'A-Z' 'a-z' | sed 's/_e$$/e/')
 ifeq ($(strip $(VTAG)),)
 VTAG  := dev
 endif
@@ -73,7 +73,7 @@ $(BUILD)/buildid.inc: FORCE | $(BUILD)
 	@cmp -s $@.tmp $@ 2>/dev/null || mv -f $@.tmp $@
 	@rm -f $@.tmp
 
-SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/editor.asm src/rle.asm src/midi.asm
+SRCS := src/main.asm src/vdp.asm src/input.asm src/psg.asm src/engine.asm src/sample.asm src/sample_ext.asm src/editor.asm src/rle.asm src/midi.asm
 GEN  := $(BUILD)/font.bin $(BUILD)/notes.inc $(BUILD)/pool.inc $(BUILD)/logo.inc $(BUILD)/buildid.inc
 
 $(BUILD)/main.o: $(SRCS) $(GEN) | $(BUILD)
@@ -96,9 +96,9 @@ $(GGROM): $(BUILD)/main-gg.o $(BUILD)/linkfile-gg
 	# .SMSTAG stamps an SMS Export region code ($4x) into the header at $7FFF;
 	# the Game Gear needs a GG region code ($6x = GG Export) or the system /
 	# flashcart auto-detect runs the ROM in SMS mode (margin + wrong palette).
-	printf '\x6c' | dd of=$@ bs=1 seek=32767 conv=notrunc 2>/dev/null
+	printf '\154' | dd of=$@ bs=1 seek=32767 conv=notrunc 2>/dev/null
 	@test "$$(xxd -s 32767 -l 1 -p $@)" = "6c" || \
-	  { echo "!! GG region stamp failed ($@ would run in SMS mode)"; rm -f $@; exit 1; }
+	  { echo "!! GG region stamp failed ($@ would run in SMS mode)"; exit 1; }
 
 # Standalone Game Gear EXT/link-port diagnostic.  It polls pins 6, 7 and 9 as
 # parallel GPIO, counts sampled edges, and can deliberately arm the PC6 NMI.
